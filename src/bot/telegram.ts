@@ -4,7 +4,7 @@
  * Esta capa solo gestiona la comunicación con Telegram.
  */
 
-import { Bot, GrammyError, HttpError, InputFile } from 'grammy';
+import { Bot, InputFile } from 'grammy';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { authMiddleware } from './middleware.js';

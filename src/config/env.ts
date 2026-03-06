@@ -20,8 +20,9 @@ export interface EnvConfig {
     OPENROUTER_API_KEY: string;
     OPENROUTER_MODEL: string;
 
-    // Base de datos
+    // Base de datos (Firebase)
     GOOGLE_APPLICATION_CREDENTIALS: string;
+    FIREBASE_SERVICE_ACCOUNT_JSON?: string;
 
     // ElevenLabs (Voz)
     ELEVENLABS_API_KEY: string;
@@ -83,6 +84,7 @@ function loadEnv(): EnvConfig {
         OPENROUTER_API_KEY: process.env['OPENROUTER_API_KEY'] as string,
         OPENROUTER_MODEL: process.env['OPENROUTER_MODEL'] as string,
         GOOGLE_APPLICATION_CREDENTIALS: process.env['GOOGLE_APPLICATION_CREDENTIALS'] as string,
+        FIREBASE_SERVICE_ACCOUNT_JSON: process.env['FIREBASE_SERVICE_ACCOUNT_JSON'],
         ELEVENLABS_API_KEY: process.env['ELEVENLABS_API_KEY'] as string,
         ELEVENLABS_VOICE_ID: process.env['ELEVENLABS_VOICE_ID'] ?? 'pNInz6obpg8nEmeWscDJ', // Adam (Default)
         AGENT_MAX_ITERATIONS: parseInt(process.env['AGENT_MAX_ITERATIONS'] ?? '10', 10),

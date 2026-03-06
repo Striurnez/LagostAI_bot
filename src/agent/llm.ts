@@ -157,8 +157,15 @@ async function callOpenRouter(
     const timeoutId = setTimeout(() => controller.abort(), env.LLM_TIMEOUT_MS);
 
     try {
+        const hasImages = messages.some(m =>
+            Array.isArray(m.content) && m.content.some(c => c.type === 'image_url')
+        );
+
+        // Si hay imágenes y estamos usando el fallback, necesitamos un modelo que las vea
+        const model = hasImages ? 'meta-llama/llama-3.2-11b-vision-instruct' : env.OPENROUTER_MODEL;
+
         const body: Record<string, unknown> = {
-            model: env.OPENROUTER_MODEL,
+            model,
             messages,
             temperature: 0.7,
             max_tokens: 4096,

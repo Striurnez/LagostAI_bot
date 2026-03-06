@@ -7,6 +7,7 @@
 import admin from 'firebase-admin';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 
+import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { DatabaseError } from '../utils/errors.js';
 
@@ -31,11 +32,18 @@ export async function initDatabase(): Promise<void> {
   if (dbInitialized) return;
 
   try {
-    // initializeApp otomatis usa la variable GOOGLE_APPLICATION_CREDENTIALS
-    // si la pasamos como applicationDefault()
-    admin.initializeApp({
-      credential: admin.credential.applicationDefault()
-    });
+    // 1. Decidir método de autenticación
+    let credential;
+    if (env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+      logger.info('Usando credenciales Firebase desde variable de entorno (JSON).');
+      credential = admin.credential.cert(JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON));
+    } else {
+      logger.info('Usando credenciales Firebase locales (vía ARCHIVO .json).');
+      credential = admin.credential.applicationDefault();
+    }
+
+    // 2. Inicializar App
+    admin.initializeApp({ credential });
 
     db = getFirestore();
     // Configurar Firestore para ignorar campos undefined
