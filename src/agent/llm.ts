@@ -66,14 +66,19 @@ async function callGroq(
 
         const model = hasImages ? 'llama-3.2-11b-vision-preview' : env.GROQ_MODEL;
 
+        if (hasImages) {
+            logger.info(`[Multimodal] Usando: ${model}. (Tools OFF)`);
+        }
+
         const body: Record<string, unknown> = {
             model,
             messages,
             temperature: 0.7,
-            max_tokens: 4096,
+            max_tokens: 1024, // Reducimos para ser más ágiles con audio/visión
         };
 
-        if (tools && tools.length > 0) {
+        // NOTA: Los modelos de visión suelen fallar si les pasas 'tools'.
+        if (!hasImages && tools && tools.length > 0) {
             body['tools'] = tools;
             body['tool_choice'] = 'auto';
         }
@@ -164,14 +169,19 @@ async function callOpenRouter(
         // Si hay imágenes y estamos usando el fallback, necesitamos un modelo que las vea
         const model = hasImages ? 'meta-llama/llama-3.2-11b-vision-instruct' : env.OPENROUTER_MODEL;
 
+        if (hasImages) {
+            logger.info(`[Multimodal Fallback] Usando: ${model}. (Tools OFF)`);
+        }
+
         const body: Record<string, unknown> = {
             model,
             messages,
             temperature: 0.7,
-            max_tokens: 4096,
+            max_tokens: 1024,
         };
 
-        if (tools && tools.length > 0) {
+        // Desactivamos tools si hay imágenes
+        if (!hasImages && tools && tools.length > 0) {
             body['tools'] = tools;
             body['tool_choice'] = 'auto';
         }
