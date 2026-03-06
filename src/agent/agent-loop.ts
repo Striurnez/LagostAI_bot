@@ -31,7 +31,7 @@ const MAX_MESSAGE_LENGTH = 4096;
  */
 export interface AgentInput {
     userId: string;
-    userMessage: string;
+    userMessage: string | Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }>;
 }
 
 /**
@@ -102,16 +102,24 @@ function buildToolDescriptions(): string {
 export async function runAgentLoop(input: AgentInput): Promise<AgentOutput> {
     const { userId, userMessage } = input;
 
-    // Seguridad: limitar longitud del mensaje
-    const sanitizedMessage = userMessage.slice(0, MAX_MESSAGE_LENGTH);
+    // Seguridad: limitar longitud del mensaje (solo si es string)
+    let sanitizedMessage = userMessage;
+    let logPreview = '[Mensaje Multimodal con Imagen]';
+
+    if (typeof userMessage === 'string') {
+        sanitizedMessage = userMessage.slice(0, MAX_MESSAGE_LENGTH);
+        logPreview = `"${sanitizedMessage.slice(0, 100)}..."`;
+    }
 
     logger.info(`Agent loop iniciado para usuario ${userId}`);
-    logger.debug(`Mensaje: "${sanitizedMessage.slice(0, 100)}..."`);
+    logger.debug(`Mensaje: ${logPreview}`);
 
     // --- [1] Construir contexto inicial ---
 
     const toolDescriptions = buildToolDescriptions();
-    const relevantMemories = await buildMemoryContext(userId, sanitizedMessage);
+    // extraemos un userMessageString para la memoria a corto plazo
+    const userMessageString = typeof sanitizedMessage === 'string' ? sanitizedMessage : (sanitizedMessage.find(item => item.type === 'text')?.text || 'Enviado una imagen.');
+    const relevantMemories = await buildMemoryContext(userId, userMessageString);
     const systemPrompt = buildSystemPrompt(toolDescriptions, relevantMemories);
     const historyMessages = await buildConversationHistory(userId);
     const tools = getToolDefinitions();
@@ -183,7 +191,7 @@ export async function runAgentLoop(input: AgentInput): Promise<AgentOutput> {
 
         // Guardar el intercambio en el historial
         try {
-            await saveMessage(userId, 'user', sanitizedMessage);
+            await saveMessage(userId, 'user', userMessageString);
             await saveMessage(userId, 'assistant', finalResponse);
         } catch (error) {
             // No es crítico si falla el guardado — loguear y continuar

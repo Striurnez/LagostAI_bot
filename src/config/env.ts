@@ -23,6 +23,10 @@ export interface EnvConfig {
     // Base de datos
     GOOGLE_APPLICATION_CREDENTIALS: string;
 
+    // ElevenLabs (Voz)
+    ELEVENLABS_API_KEY: string;
+    ELEVENLABS_VOICE_ID: string;
+
     // Configuración del agente
     AGENT_MAX_ITERATIONS: number;
     LLM_TIMEOUT_MS: number;
@@ -42,6 +46,7 @@ function loadEnv(): EnvConfig {
         'OPENROUTER_API_KEY',
         'OPENROUTER_MODEL',
         'GOOGLE_APPLICATION_CREDENTIALS',
+        'ELEVENLABS_API_KEY',
     ];
 
     // Verificar que todas las variables requeridas existan
@@ -78,6 +83,8 @@ function loadEnv(): EnvConfig {
         OPENROUTER_API_KEY: process.env['OPENROUTER_API_KEY'] as string,
         OPENROUTER_MODEL: process.env['OPENROUTER_MODEL'] as string,
         GOOGLE_APPLICATION_CREDENTIALS: process.env['GOOGLE_APPLICATION_CREDENTIALS'] as string,
+        ELEVENLABS_API_KEY: process.env['ELEVENLABS_API_KEY'] as string,
+        ELEVENLABS_VOICE_ID: process.env['ELEVENLABS_VOICE_ID'] ?? 'pNInz6obpg8nEmeWscDJ', // Adam (Default)
         AGENT_MAX_ITERATIONS: parseInt(process.env['AGENT_MAX_ITERATIONS'] ?? '10', 10),
         LLM_TIMEOUT_MS: parseInt(process.env['LLM_TIMEOUT_MS'] ?? '30000', 10),
         LOG_LEVEL: logLevel,
