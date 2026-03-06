@@ -62,10 +62,17 @@ async function main(): Promise<void> {
     // [3] Crear e iniciar el bot
     const bot = createBot();
 
+    // [3.5] Si estamos en Vercel, no hacemos Long Polling, cedemos el control a api/webhook.ts
+    if (process.env.VERCEL || process.env.VERCEL_ENV) {
+        logger.info('⚡ Entorno Vercel detectado. Omitiendo Long Polling.');
+        logger.info('El bot funcionará vía Webhooks en /api/webhook.');
+        return;
+    }
+
     // [4] Configurar shutdown controlado
     setupGracefulShutdown(() => bot.stop());
 
-    // [5] Iniciar long polling
+    // [5] Iniciar long polling local
     logger.info('Iniciando long polling de Telegram...');
     await bot.start({
         onStart: (botInfo) => {
