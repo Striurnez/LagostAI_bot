@@ -234,9 +234,10 @@ export async function safeRunAgentLoop(input: AgentInput): Promise<AgentOutput> 
     try {
         return await runAgentLoop(input);
     } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
         logger.error('Error no controlado en el agent loop:', error);
         return {
-            response: AGENT_ERROR_MESSAGE,
+            response: `${AGENT_ERROR_MESSAGE}\n\n⚠️ *Detalle:* ${errMsg}`,
             iterationsUsed: 0,
         };
     }

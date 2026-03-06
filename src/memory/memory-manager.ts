@@ -73,14 +73,17 @@ export async function getRecentMemories(userId: string, limit = 10): Promise<Mem
         const db = getDatabase();
         const snapshot = await db.collection(MEMORIES_COLLECTION)
             .where('user_id', '==', userId)
-            .orderBy('created_at', 'desc')
-            .limit(limit)
+            // .orderBy('created_at', 'desc') -- Desactivado para evitar errores de índice compuesta en Vercel
+            .limit(limit * 2) // Traemos un poco más para filtrar/ordenar en RAM
             .get();
 
-        return snapshot.docs.map(doc => ({
+        const memories = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
         } as Memory));
+
+        // Ordenar en RAM de forma segura
+        return memories.sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, limit);
     } catch (error) {
         throw new DatabaseError('Error al obtener memorias recientes en Firestore', error);
     }
@@ -94,22 +97,22 @@ export async function getRecentMemories(userId: string, limit = 10): Promise<Mem
 export async function searchMemories(userId: string, query: string): Promise<Memory[]> {
     try {
         const db = getDatabase();
-        // Traemos un lote inicial para filtrar
         const snapshot = await db.collection(MEMORIES_COLLECTION)
             .where('user_id', '==', userId)
-            .orderBy('created_at', 'desc')
-            .limit(50)
+            // .orderBy('created_at', 'desc')
+            .limit(100)
             .get();
 
         const searchTerm = query.toLowerCase();
 
-        // Filtrado en memoria
+        // Filtrado y ordenado en memoria
         const results = snapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() } as Memory))
             .filter(m =>
                 m.content.toLowerCase().includes(searchTerm) ||
                 m.type.toLowerCase().includes(searchTerm)
-            );
+            )
+            .sort((a, b) => b.created_at.localeCompare(a.created_at));
 
         return results.slice(0, 5); // Limitado a 5 resultados útiles para el LLM
     } catch (error) {
@@ -188,21 +191,19 @@ export async function getConversationHistory(
 ): Promise<ConversationMessage[]> {
     try {
         const db = getDatabase();
-        // Firestore permite ordenar y limitar asumiendo que está indexado
         const snapshot = await db.collection(HISTORY_COLLECTION)
             .where('user_id', '==', userId)
-            .orderBy('created_at', 'desc')
+            // .orderBy('created_at', 'desc')
             .limit(limit)
             .get();
 
-        // Las traemos en orden desc (las más nuevas primero) y luego invertimos el array
-        // para devolver orden cronológico al LLM (las más viejas primero).
         const messages = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
         } as ConversationMessage));
 
-        return messages.reverse();
+        // Ordenamos por timestamp cronológico (ascendente) para el LLM
+        return messages.sort((a: ConversationMessage, b: ConversationMessage) => a.created_at.localeCompare(b.created_at));
     } catch (error) {
         throw new DatabaseError('Error al obtener historial de conversación en Firestore', error);
     }
