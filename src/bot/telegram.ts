@@ -2,10 +2,9 @@
  * bot/telegram.ts
  * Configuración de Grammy + handlers de comandos y mensajes.
  * Esta capa solo gestiona la comunicación con Telegram.
- * La lógica de negocio vive en el agent loop, que es agnóstico al canal.
  */
 
-import { Bot, GrammyError, HttpError } from 'grammy';
+import { Bot, GrammyError, HttpError, InputFile } from 'grammy';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { authMiddleware } from './middleware.js';
@@ -21,7 +20,6 @@ import {
     downloadTelegramFileAsBase64,
     generateSpeechElevenLabs
 } from './media.js';
-import { InputFile } from 'grammy';
 
 // Tiempo de inicio para calcular uptime
 const startTime = Date.now();
@@ -33,255 +31,158 @@ export function createBot(): Bot {
     const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
 
     // ----- Middleware global -----
-    // La autenticación se aplica a TODOS los mensajes antes de cualquier handler
     bot.use(authMiddleware);
 
     // ----- Comandos -----
 
-    /**
-     * /start — Mensaje de bienvenida
-     */
     bot.command('start', async (ctx) => {
         const username = ctx.from?.first_name ?? 'usuario';
         await ctx.reply(
-            `👋 ¡Hola, ${username}! Soy *LasgostAI*, tu asistente personal de IA.\n\n` +
-            `Puedo ayudarte con preguntas, recordar información importante y usar herramientas para obtener datos reales.\n\n` +
-            `Escríbeme cualquier cosa o usa /help para ver los comandos disponibles.`,
+            `👋 ¡Hola, ${username}! Soy *LasgostAI*, tu asistente multimodal.\n\n` +
+            `• Puedo escucharte (mándame un audio)\n` +
+            `• Puedo hablarte (pídeme un audio o mándame voz)\n` +
+            `• Puedo ver (mándame una foto)\n\n` +
+            `Usa /help para más detalles.`,
             { parse_mode: 'Markdown' },
         );
     });
 
-    /**
-     * /help — Lista de comandos disponibles
-     */
     bot.command('help', async (ctx) => {
         await ctx.reply(
             `📋 *Comandos disponibles:*\n\n` +
-            `• /start — Mensaje de bienvenida\n` +
+            `• /start — Bienvenida\n` +
             `• /help — Esta ayuda\n` +
-            `• /clear — Borrar historial de conversación\n` +
-            `• /memory — Ver memorias guardadas\n` +
+            `• /clear — Borrar historial\n` +
+            `• /memory — Ver memorias\n` +
             `• /status — Estado del bot\n\n` +
-            `_Simplemente escríbeme para chatear o hacerme preguntas._`,
+            `_Tips: Si me pides "háblame" o "mándame un audio", te responderé con mi voz de ElevenLabs._`,
             { parse_mode: 'Markdown' },
         );
     });
 
-    /**
-     * /clear — Limpiar historial de conversación
-     */
     bot.command('clear', async (ctx) => {
         const userId = String(ctx.from!.id);
         const deleted = await clearHistory(userId);
-        await ctx.reply(
-            `🗑️ Historial borrado. Se eliminaron ${deleted} mensajes.\n` +
-            `Empezamos desde cero — ¡hola! 👋`,
-        );
+        await ctx.reply(`🗑️ Historial borrado (${deleted} mensajes).`);
     });
 
-    /**
-     * /memory — Mostrar memorias guardadas del usuario
-     */
     bot.command('memory', async (ctx) => {
         const userId = String(ctx.from!.id);
         const memories = await getRecentMemories(userId, 10);
-
         if (memories.length === 0) {
             await ctx.reply('🧠 No tengo memorias guardadas sobre ti todavía.');
             return;
         }
-
-        const memoryList = memories
-            .map((m, i) => `${i + 1}. [${m.type}] ${m.content}`)
-            .join('\n');
-
-        await ctx.reply(
-            `🧠 *Mis memorias sobre ti (últimas ${memories.length}):*\n\n${memoryList}`,
-            { parse_mode: 'Markdown' },
-        );
+        const memoryList = memories.map((m, i) => `${i + 1}. [${m.type}] ${m.content}`).join('\n');
+        await ctx.reply(`🧠 *Tus memorias:*\n\n${memoryList}`, { parse_mode: 'Markdown' });
     });
 
-    /**
-     * /status — Estado del bot (uptime, stats, proveedor activo)
-     */
     bot.command('status', async (ctx) => {
         const userId = String(ctx.from!.id);
-        const uptimeMs = Date.now() - startTime;
-        const uptimeMin = Math.floor(uptimeMs / 60000);
-        const uptimeSec = Math.floor((uptimeMs % 60000) / 1000);
+        const uptimeMin = Math.floor((Date.now() - startTime) / 60000);
         const memoryCount = await countMemories(userId);
-
         await ctx.reply(
-            `📊 *Estado de LasgostAI*\n\n` +
-            `⏱️ Uptime: ${uptimeMin}m ${uptimeSec}s\n` +
-            `🧠 Memorias guardadas: ${memoryCount}\n` +
-            `🤖 LLM Principal: ${env.GROQ_MODEL}\n` +
-            `🔄 LLM Fallback: ${env.OPENROUTER_MODEL}\n` +
-            `📝 Historial máximo: 20 mensajes`,
+            `📊 *Estado*\n` +
+            `⏱️ Uptime: ${uptimeMin}m\n` +
+            `🧠 Memorias: ${memoryCount}\n` +
+            `🤖 Motor: ${env.GROQ_MODEL}`,
             { parse_mode: 'Markdown' },
         );
     });
 
-    // ----- Handlers de Mensajes y Multimedia -----
+    // ----- Handlers de Mensajes -----
 
     /**
-     * Handler para notas de voz y archivos de audio enviados al bot.
-     * Transcribe el audio con Groq Whisper y pasa el texto resultante al Agent Loop.
+     * Función unificada para responder al usuario.
+     * Decidimos si enviar audio basándonos en la entrada o palabras clave.
      */
-    bot.on(['message:voice', 'message:audio'], async (ctx) => {
-        const userId = String(ctx.from!.id);
+    async function sendSmartResponse(ctx: any, result: { response: string }, forceVoice = false) {
+        const text = result.response;
+        // Activamos voz si el usuario lo pide o si él mandó un audio primero
+        const keywords = /\b(audio|voz|habla|dime|escúchame|leeme|lee|manda audio|háblame)\b/i;
+        const shouldVoice = forceVoice || (ctx.message?.text && keywords.test(ctx.message.text));
 
-        // Telegram puede mandar esto como voice (nota de voz de cel) o audio (archivo ogg/mp3/etc)
-        const fileObj = ctx.message.voice || ctx.message.audio;
-
-        if (!fileObj) return;
-
-        logger.info(`Audio recibido de ${userId}. Procesando transcripción...`);
-        let tempMessage;
+        if (shouldVoice && env.ELEVENLABS_API_KEY) {
+            await ctx.replyWithChatAction('record_voice');
+            try {
+                const voiceBlob = await generateSpeechElevenLabs(text);
+                const buffer = Buffer.from(await voiceBlob.arrayBuffer());
+                await ctx.replyWithVoice(new InputFile(buffer, 'respuesta.mp3'));
+            } catch (error) {
+                logger.error('Error ElevenLabs:', error);
+            }
+        } else {
+            await ctx.replyWithChatAction('typing');
+        }
 
         try {
-            // Avisar al usuario que estamos procesando su audio
-            tempMessage = await ctx.reply('🎧 _Escuchando tu audio..._', { parse_mode: 'Markdown' });
-            await ctx.replyWithChatAction('typing');
+            await ctx.reply(text, { parse_mode: 'Markdown' });
+        } catch {
+            await ctx.reply(text);
+        }
+    }
 
-            // 1. Obtener la ruta del archivo de Telegram via Bot API
+    /** Handler de Audio (Voz) */
+    bot.on(['message:voice', 'message:audio'], async (ctx) => {
+        const userId = String(ctx.from!.id);
+        const fileObj = ctx.message.voice || ctx.message.audio;
+        if (!fileObj) return;
+
+        let temp;
+        try {
+            temp = await ctx.reply('🎧 _Escuchando..._', { parse_mode: 'Markdown' });
             const fileInfo = await ctx.api.getFile(fileObj.file_id);
-            if (!fileInfo.file_path) {
-                throw new Error('Telegram no devolvió la ruta del archivo (file_path).');
-            }
+            if (!fileInfo.file_path) throw new Error('No file_path');
 
-            // 2. Descargar el archivo localmente como Blob
             const audioBlob = await downloadTelegramFile(fileInfo.file_path);
+            const transcription = await transcribeAudioGroq(audioBlob, 'audio.ogg');
 
-            // 3. Transcribir el audio a texto usando Groq Whisper
-            // Mantenemos una extensión genérica u .ogg, whisper suele detectarlo bien
-            const transcribedText = await transcribeAudioGroq(audioBlob, 'audio.ogg');
+            await ctx.api.editMessageText(ctx.chat.id, temp.message_id, `🗣️ *Tú:* "${transcription}"`, { parse_mode: 'Markdown' });
 
-            logger.info(`Transcripción completada: "${transcribedText.slice(0, 100)}..."`);
-
-            // Avisar al usuario qué fue lo que entendió
-            await ctx.api.editMessageText(
-                ctx.chat.id,
-                tempMessage.message_id,
-                `🗣️ *Tú:* "${transcribedText}"`,
-                { parse_mode: 'Markdown' }
-            );
-
-            // 4. Alimentar el Agent Loop con el texto transcrito
-            await ctx.replyWithChatAction('typing');
-            const result = await safeRunAgentLoop({ userId, userMessage: transcribedText });
-
-            // 5. Responder con voz ya que el usuario mandó voz
-            try {
-                logger.info('Generando respuesta de voz...');
-                const voiceBlob = await generateSpeechElevenLabs(result.response);
-                const arrayBuffer = await voiceBlob.arrayBuffer();
-                const buffer = Buffer.from(arrayBuffer);
-
-                await ctx.replyWithVoice(new InputFile(buffer, 'response.mp3'));
-                // También enviar el texto por si acaso
-                await ctx.reply(result.response, { parse_mode: 'Markdown' });
-            } catch (vError) {
-                logger.error('Error generando voz de ElevenLabs:', vError);
-                await ctx.reply(result.response, { parse_mode: 'Markdown' });
-            }
-
+            const result = await safeRunAgentLoop({ userId, userMessage: transcription });
+            await sendSmartResponse(ctx, result, true);
         } catch (error) {
-            logger.error(`Error procesando audio del usuario ${userId}:`, error);
-            const errMsg = '❌ Error al intentar escuchar tu audio. ';
-
-            if (tempMessage) {
-                await ctx.api.editMessageText(ctx.chat.id, tempMessage.message_id, errMsg);
-            } else {
-                await ctx.reply(errMsg);
-            }
+            logger.error('Error audio handler:', error);
+            if (temp) await ctx.api.editMessageText(ctx.chat.id, temp.message_id, '❌ Fallo al procesar audio.');
         }
     });
 
-    /**
-     * Handler para imágenes (Visión Artificial).
-     * Groq Vision analiza la imagen y el agent loop responde sobre ella.
-     */
+    /** Handler de Fotos (Vision) */
     bot.on('message:photo', async (ctx) => {
         const userId = String(ctx.from!.id);
-        const photo = ctx.message.photo.pop(); // La versión con más resolución
-        const caption = ctx.message.caption || 'Describe esta imagen en detalle y responde a cualquier petición implícita.';
-
+        const photo = ctx.message.photo.pop();
+        const caption = ctx.message.caption || 'Describe esta imagen.';
         if (!photo) return;
-
-        logger.info(`Foto recibida de ${userId}. Procesando con Groq Vision...`);
 
         try {
             await ctx.replyWithChatAction('typing');
-
-            // 1. Obtener ruta del archivo
             const fileInfo = await ctx.api.getFile(photo.file_id);
             if (!fileInfo.file_path) throw new Error('No file_path');
 
-            // 2. Descargar como Base64 Data URL
-            const base64Image = await downloadTelegramFileAsBase64(fileInfo.file_path);
-
-            // 3. Ejecutar Agent Loop con formato Multimodal
+            const base64 = await downloadTelegramFileAsBase64(fileInfo.file_path);
             const multimodalMessage = [
                 { type: 'text', text: caption } as const,
-                { type: 'image_url', image_url: { url: base64Image } } as const
+                { type: 'image_url', image_url: { url: base64 } } as const
             ];
 
             const result = await safeRunAgentLoop({ userId, userMessage: multimodalMessage });
-
-            try {
-                await ctx.reply(result.response, { parse_mode: 'Markdown' });
-            } catch {
-                await ctx.reply(result.response);
-            }
-
+            await sendSmartResponse(ctx, result);
         } catch (error) {
-            logger.error(`Error procesando visión para el usuario ${userId}:`, error);
-            await ctx.reply('❌ No pude procesar esa imagen. Asegúrate de que no sea muy pesada.');
+            logger.error('Error vision handler:', error);
+            await ctx.reply('❌ No pude ver esa imagen.');
         }
     });
 
-    /**
-     * Cualquier mensaje de texto que no sea un comando se pasa al agent loop.
-     */
+    /** Handler de Texto */
     bot.on('message:text', async (ctx) => {
         const userId = String(ctx.from!.id);
-        const userMessage = ctx.message.text;
-
-        logger.info(`Mensaje de ${userId}: "${userMessage.slice(0, 80)}..."`);
-
-        // Mostrar indicador "escribiendo..." mientras el agente procesa
-        await ctx.replyWithChatAction('typing');
-
-        // Ejecutar el agent loop de forma segura
-        const result = await safeRunAgentLoop({ userId, userMessage });
-
-        // Enviar la respuesta al usuario con reintentos básicos
-        try {
-            await ctx.reply(result.response, { parse_mode: 'Markdown' });
-        } catch {
-            // Si falla con Markdown (caracteres especiales), intentar sin formato
-            try {
-                await ctx.reply(result.response);
-            } catch (innerError) {
-                logger.error('No se pudo enviar la respuesta al usuario:', innerError);
-                await ctx.reply('❌ Error al enviar la respuesta.');
-            }
-        }
+        const result = await safeRunAgentLoop({ userId, userMessage: ctx.message.text });
+        await sendSmartResponse(ctx, result);
     });
 
-    // ----- Manejo global de errores de Grammy -----
+    // Error handling
     bot.catch((err) => {
-        const ctx = err.ctx;
-        logger.error(`Error en Grammy para update ${ctx.update.update_id}:`);
-
-        if (err.error instanceof GrammyError) {
-            logger.error('Error de la API de Telegram:', err.error.message);
-        } else if (err.error instanceof HttpError) {
-            logger.error('Error de red con Telegram:', err.error.message);
-        } else {
-            logger.error('Error desconocido:', err.error);
-        }
+        logger.error(`Error Grammy: ${err.message}`);
     });
 
     return bot;

@@ -59,8 +59,15 @@ async function callGroq(
     const timeoutId = setTimeout(() => controller.abort(), env.LLM_TIMEOUT_MS);
 
     try {
+        // Detectar si hay imágenes para cambiar al modelo de Visión automáticamente
+        const hasImages = messages.some(m =>
+            Array.isArray(m.content) && m.content.some(c => c.type === 'image_url')
+        );
+
+        const model = hasImages ? 'llama-3.2-11b-vision-preview' : env.GROQ_MODEL;
+
         const body: Record<string, unknown> = {
-            model: env.GROQ_MODEL,
+            model,
             messages,
             temperature: 0.7,
             max_tokens: 4096,

@@ -46,10 +46,15 @@ export interface AgentOutput {
 /**
  * Obtiene y formatea las memorias relevantes del usuario para el system prompt.
  */
-async function buildMemoryContext(userId: string, userMessage: string): Promise<string> {
+async function buildMemoryContext(userId: string, userMessage: string | any[]): Promise<string> {
     try {
+        // Extraer texto para la búsqueda de memorias si es multimodal
+        const textForSearch = typeof userMessage === 'string'
+            ? userMessage
+            : userMessage.find(m => m.type === 'text')?.text || '';
+
         // Buscar memorias relacionadas con el mensaje actual
-        const relatedMemories = await searchMemories(userId, userMessage.slice(0, 100));
+        const relatedMemories = await searchMemories(userId, textForSearch.slice(0, 100));
 
         // Si no hay relacionadas, traer las más recientes
         const memories = relatedMemories.length > 0
