@@ -263,7 +263,12 @@ export async function callLLM(
     logger.debug(`Llamando al LLM con ${messages.length} mensajes`);
 
     // Intentar con Groq primero
-    let result = await callGroq(messages, tools);
+    let result = null;
+    try {
+        result = await callGroq(messages, tools);
+    } catch (error) {
+        logger.error('Groq falló con error crítico, intentando fallback...', error);
+    }
 
     if (result) {
         logger.info(`LLM respondió vía Groq (${result.model})`);
@@ -271,7 +276,7 @@ export async function callLLM(
     }
 
     // Fallback a OpenRouter
-    logger.info('Usando OpenRouter como fallback');
+    logger.info('Usando OpenRouter como fallback...');
     result = await callOpenRouter(messages, tools);
     logger.info(`LLM respondió vía OpenRouter (${result.model})`);
     return result;
