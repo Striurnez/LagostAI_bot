@@ -1,0 +1,32 @@
+# Dependencias
+node_modules/
+
+# Compilado
+dist/
+
+# Variables de entorno (¡NUNCA subir!)
+.env
+
+# Base de datos local
+data/
+*.db
+*.sqlite
+
+# Logs
+logs/
+*.log
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Credenciales de servicios
+service-account.json
+*.pem
+*.key
